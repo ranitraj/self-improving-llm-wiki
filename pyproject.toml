@@ -1,8 +1,8 @@
 [project]
-name = "{{project-name}}"
+name = "self-improving-llm-wiki"
 version = "0.1.0"
-description = "{{project-description}}"
-requires-python = ">={{python-version}}"
+description = "A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist using Hermes agent"
+requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]

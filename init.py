@@ -80,11 +80,11 @@ def main() -> None:
     print("\nInitialising...\n")
 
     _replace_in_tree(ROOT, {
-        "{{project-name}}": project_name,
-        "{{project-description}}": description,
-        "{{python-version}}": python_version,
-        "{{service-name}}": service_name,
-        "{{service-module}}": service_module,
+        "self-improving-llm-wiki": project_name,
+        "A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist using Hermes agent": description,
+        "3.12": python_version,
+        "wiki-agent": service_name,
+        "wiki_agent": service_module,
     })
     _set_python_version(ROOT, python_version)
     _apply_quality_settings(ROOT, python_version, pylint_score, line_length, max_args, strict_mypy)

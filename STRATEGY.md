@@ -1,6 +1,6 @@
-# {{project-name}}
+# self-improving-llm-wiki
 
-> {{project-description}}
+> A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist using Hermes agent
 
 ---
 
