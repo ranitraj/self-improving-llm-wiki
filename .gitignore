@@ -169,6 +169,9 @@ cdk.out
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Claude Code
+.claude/settings.local.json
+
 # custom
 test-reports
 tests/artifacts
