@@ -1,7 +1,7 @@
 [project]
 name = "self-improving-llm-wiki"
 version = "0.1.0"
-description = "A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist using Hermes agent"
+description = "A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist"
 requires-python = ">=3.12"
 dependencies = []
 

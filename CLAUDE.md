@@ -107,19 +107,21 @@ Before implementing any non-trivial feature or module, a design doc must be crea
 Template lives at `.claude/designs/_template.md` — copy it, fill it, get sign-off, then code.
 
 ### Workflow
-1. **Ask 3 rounds of follow-up questions** before writing anything:
-   - Round 1: broad clarifications — what, why, who
-   - Round 2: drill into gaps and ambiguities surfaced by round 1
-   - Round 3: edge cases, failure modes, constraints
-   - After round 3: ask *"Want to dig deeper, or shall we proceed to the design doc?"*
-   - If dig deeper → continue targeted rounds, repeat the question after each
-   - If proceed → move to step 2
+1. **Two-phase questioning** before writing anything:
+   - **Phase 1 — Exploration**: Ask open questions to help the user discover what they want. Continue as long as the user is still pivoting or undecided. Do not ask implementation-detail questions yet.
+   - **Phase 2 — Finalisation** (once direction is clear): Ask exactly 3 targeted rounds:
+     - Round 1: gaps and ambiguities surfaced by exploration
+     - Round 2: edge cases and failure modes
+     - Round 3: constraints (scale, security, ops, cost)
+   - After Round 3: ask *"Want to dig deeper, or shall we proceed to the design doc?"*
+   - If dig deeper → continue targeted rounds, repeat the question after each.
+   - If proceed → move to step 2.
 2. Copy `_template.md` → `.claude/designs/<name>.md` and fill every section.
 3. Get explicit sign-off before writing any implementation code.
 4. Implement against the doc. Update the doc if design changes — doc stays the source of truth.
 5. Set `status: done` when the feature is complete.
 
-The same 3-round + dig-deeper flow applies to `STRATEGY.md`.
+The same adaptive flow applies to `STRATEGY.md`.
 
 ### Frontmatter rules
 - `type`: `feature` | `model` | `service` | `tool` | `refactor`
