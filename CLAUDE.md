@@ -121,7 +121,7 @@ Template lives at `.claude/designs/_template.md` — copy it, fill it, get sign-
 4. Implement against the doc. Update the doc if design changes — doc stays the source of truth.
 5. Set `status: done` when the feature is complete.
 
-The same adaptive flow applies to `STRATEGY.md`.
+The same two-phase flow applies to `STRATEGY.md`.
 
 ### Frontmatter rules
 - `type`: `feature` | `model` | `service` | `tool` | `refactor`

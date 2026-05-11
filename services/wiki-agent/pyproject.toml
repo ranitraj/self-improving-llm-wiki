@@ -26,3 +26,24 @@ packages = ["src/wiki_agent"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# ---------------------------------------------------------------------------
+# MyPy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+pretty = true
+show_error_codes = true
+
+# ---------------------------------------------------------------------------
+# Pylint
+# Line length is owned by ruff (configured at root). Disabling here avoids
+# tool-conflict noise — ruff is the single source of truth for formatting.
+# ---------------------------------------------------------------------------
+[tool.pylint."MESSAGES CONTROL"]
+disable = ["line-too-long"]
