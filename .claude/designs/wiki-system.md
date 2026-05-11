@@ -139,22 +139,63 @@ class LintResult(BaseModel):
 ```python
 # services/wiki-agent/src/wiki_agent/models.py
 
-class WikiPage(BaseModel):
-    entry_type: str          # character | episode | arc | ...
-    path: str                # repo-relative path e.g. wiki/characters/tanjiro.md
-    frontmatter: dict        # parsed YAML frontmatter
-    body: str                # markdown body content
+EntryType = Literal[
+    "character", "episode", "arc", "breathing_style",
+    "blood_demon_art", "location", "organization",
+]
 
-class WikiIndex(BaseModel):
-    entries: list[IndexEntry]
-    last_updated: datetime
+class WikiPage(BaseModel):
+    entry_type: EntryType
+    path: str                # repo-relative path; validator rejects absolute paths
+    frontmatter: dict[str, Any]
+    body: str
+    # helpers: to_markdown(), file_name()
 
 class IndexEntry(BaseModel):
     title: str
     path: str
-    entry_type: str
+    entry_type: EntryType
     summary: str             # one-line only — token budget constraint
+    # helpers: to_markdown_link(), matches_path(path)
+
+class WikiIndex(BaseModel):
+    entries: list[IndexEntry]
+    last_updated: datetime
+    # helpers: is_stale(log_updated_at), find_by_type(t), find_by_path(p)
 ```
+
+Result models (`IngestResult`, `QueryResult`, `LintResult`) carry small convenience helpers:
+- `IngestResult.total_pages_touched()`, `is_empty()`
+- `QueryResult.split_for_telegram()` (uses `TELEGRAM_MESSAGE_LIMIT` from `wiki_agent.constants`), `has_sources()`; `new_page_filed` defaults to `False`
+- `LintResult.has_issues()`, `fix_rate()`
+
+Shared constants (e.g. `TELEGRAM_MESSAGE_LIMIT`) live in `services/wiki-agent/src/wiki_agent/constants.py`.
+
+### `index.md` on-disk format
+
+```markdown
+---
+last_updated: 2026-05-11T14:30:00
+---
+
+# Wiki Index
+
+## Characters
+- [Tanjiro Kamado](wiki/characters/tanjiro.md) — Protagonist demon slayer
+
+## Episodes
+- [Episode 1](wiki/episodes/01.md) — Cruelty
+```
+
+- Frontmatter holds `last_updated` (ISO-8601). Required — parser raises if missing.
+- `## <Section>` heading maps to `entry_type`:
+  Characters→character, Episodes→episode, Arcs→arc, Breathing Styles→breathing_style,
+  Blood Demon Arts→blood_demon_art, Locations→location, Organizations→organization.
+- Each bullet uses `IndexEntry.to_markdown_link()` format.
+- Empty sections are omitted on serialize; absent sections parse as zero entries.
+- Parser/serializer: `services/wiki-agent/src/wiki_agent/index_md.py`
+  - `parse_index(content: str) -> WikiIndex`
+  - `serialize_index(index: WikiIndex) -> str`
 
 ## Data Flow
 

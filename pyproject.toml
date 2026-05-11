@@ -78,3 +78,10 @@ max-branches = 10
 max-returns = 5
 max-statements = 60
 max-complexity = 10
+
+[tool.pylint.similarities]
+min-similarity-lines = 6
+ignore-comments = true
+ignore-docstrings = true
+ignore-imports = true
+ignore-signatures = true
