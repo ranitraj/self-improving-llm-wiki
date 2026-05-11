@@ -18,8 +18,11 @@ def main() -> int:
     files = [Path(f) for f in sys.argv[1:]]
     missing: list[tuple[Path, Path]] = []
 
+    # Files that hold only data (constants, config) don't need test files.
+    _no_test_required = {"constants.py"}
+
     for f in files:
-        if "src" not in f.parts or f.name == "__init__.py":
+        if "src" not in f.parts or f.name == "__init__.py" or f.name in _no_test_required:
             continue
         src_idx = list(f.parts).index("src")
         service_root = Path(*f.parts[:src_idx])

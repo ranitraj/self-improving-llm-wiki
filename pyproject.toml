@@ -12,6 +12,7 @@ dev = [
     "ruff>=0.9.0",
     "pre-commit>=4.0.0",
     "codespell>=2.4.0",
+    "pydantic>=2.0.0",
 ]
 
 [tool.uv]
@@ -55,6 +56,8 @@ warn_redundant_casts = true
 warn_unreachable = true
 pretty = true
 show_error_codes = true
+# Each service has its own venv — exclude from root-level type checking
+exclude = ["services/"]
 
 # ---------------------------------------------------------------------------
 # Pylint
@@ -62,6 +65,8 @@ show_error_codes = true
 [tool.pylint.main]
 load-plugins = ["pylint.extensions.mccabe"]
 fail-under = 10
+# Each service has its own venv — exclude from root-level lint
+ignore-paths = ["services/"]
 
 [tool.pylint."MESSAGES CONTROL"]
 disable = ["line-too-long"]

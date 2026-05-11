@@ -3,7 +3,9 @@ name = "wiki-agent"
 version = "0.1.0"
 description = "A self-improving LLM wiki based on Andrej Karpathy's LLM Wiki gist — wiki-agent service"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pydantic>=2.0.0",
+]
 
 [dependency-groups]
 dev = [

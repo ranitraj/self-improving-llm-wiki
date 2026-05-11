@@ -130,8 +130,9 @@ The same adaptive flow applies to `STRATEGY.md`.
 - `status`: `draft` → `in-progress` → `done` (or `abandoned` with a reason note)
 
 ### Stable IDs
-Test scenarios use T-IDs (T1, T2…) that never renumber — gaps from deletion are fine.
-These IDs are referenced in the actual test function names: `test_T1_fetch_entry_returns_entry`.
+Test scenarios in design docs use T-IDs (T1, T2…) that never renumber — gaps from deletion are fine.
+T-IDs live only in the design doc as scenario references. Test function names use plain descriptive snake_case:
+`test_fetch_entry_returns_entry`, not `test_T1_fetch_entry_returns_entry`.
 
 ### Hard rules
 - Before starting any implementation task, automatically scan `.claude/designs/` for a doc whose

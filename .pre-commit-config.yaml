@@ -49,6 +49,7 @@ repos:
         language: system
         types: [python]
         pass_filenames: true
+        exclude: ^services/
 
   - repo: local
     hooks:
@@ -57,12 +58,13 @@ repos:
         entry: uv run pylint -j 0 --fail-under=10
         language: system
         types: [python]
+        exclude: ^services/
 
   - repo: local
     hooks:
       - id: enforce-tdd
         name: enforce TDD (test file must exist for each src module)
-        entry: python scripts/check_tdd.py
+        entry: uv run python scripts/check_tdd.py
         language: system
         types: [python]
         pass_filenames: true

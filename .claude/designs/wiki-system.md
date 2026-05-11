@@ -2,7 +2,7 @@
 type: service
 name: wiki-system
 step: 1
-status: draft
+status: in-progress
 depends_on: []
 ---
 
