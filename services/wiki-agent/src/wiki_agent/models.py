@@ -5,19 +5,23 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
-from wiki_agent.constants import EPISODE_PATH_PREFIX, TELEGRAM_MESSAGE_LIMIT
-
-EntryType = Literal[
-    "character",
-    "episode",
-    "arc",
-    "breathing_style",
-    "blood_demon_art",
-    "location",
-    "organization",
-]
+from wiki_agent.constants import TELEGRAM_MESSAGE_LIMIT
+from wiki_agent.utils.wiki_layout import EntryType, path_prefix_for
 
 LogOperation = Literal["ingest", "lint"]
+
+__all__ = [
+    "EntryType",
+    "IndexEntry",
+    "IngestResult",
+    "LintResult",
+    "LogEntry",
+    "LogOperation",
+    "QueryResult",
+    "WikiIndex",
+    "WikiLog",
+    "WikiPage",
+]
 
 
 class WikiPage(BaseModel):
@@ -323,19 +327,20 @@ class WikiLog(BaseModel):
     def count_episodes(self) -> int:
         """Return the number of distinct episode pages ever touched.
 
-        Counts unique paths under `EPISODE_PATH_PREFIX` across both the created
-        and updated lists of every entry, so re-ingesting an existing episode
-        does not double-count.
+        Counts unique paths under the episode path prefix across both the
+        created and updated lists of every entry, so re-ingesting an existing
+        episode does not double-count.
 
         Returns
         -------
         int
             Distinct episode paths recorded across all entries.
         """
+        episode_prefix = path_prefix_for("episode")
         episode_paths: set[str] = set()
         for entry in self.entries:
             for path in (*entry.created, *entry.updated):
-                if path.startswith(EPISODE_PATH_PREFIX):
+                if path.startswith(episode_prefix):
                     episode_paths.add(path)
         return len(episode_paths)
 

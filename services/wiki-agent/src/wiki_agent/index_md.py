@@ -3,18 +3,8 @@
 from datetime import datetime
 
 from wiki_agent.models import EntryType, IndexEntry, WikiIndex
-
-_FRONTMATTER_DELIMITER = "---"
-
-_SECTION_TO_ENTRY_TYPE: dict[str, EntryType] = {
-    "Characters": "character",
-    "Episodes": "episode",
-    "Arcs": "arc",
-    "Breathing Styles": "breathing_style",
-    "Blood Demon Arts": "blood_demon_art",
-    "Locations": "location",
-    "Organizations": "organization",
-}
+from wiki_agent.utils.frontmatter import parse_fields, split_frontmatter
+from wiki_agent.utils.wiki_layout import WIKI_CATEGORIES, entry_type_for_section
 
 
 def parse_index(content: str) -> WikiIndex:
@@ -35,8 +25,11 @@ def parse_index(content: str) -> WikiIndex:
     ValueError
         If the frontmatter block or its `last_updated` field is missing.
     """
-    frontmatter_block, body = _split_frontmatter(content)
-    last_updated = datetime.fromisoformat(_read_field(frontmatter_block, "last_updated"))
+    block, body = split_frontmatter(content)
+    fields = parse_fields(block)
+    if "last_updated" not in fields:
+        raise ValueError("index.md frontmatter is missing required `last_updated` field")
+    last_updated = datetime.fromisoformat(fields["last_updated"])
     entries = list(_parse_entries(body))
     return WikiIndex(entries=entries, last_updated=last_updated)
 
@@ -53,78 +46,24 @@ def serialize_index(index: WikiIndex) -> str:
     -------
     str
         Markdown content suitable for writing back to index.md. Sections with
-        no entries are omitted; section order is fixed by `_SECTION_TO_ENTRY_TYPE`.
+        no entries are omitted; section order is fixed by `WIKI_CATEGORIES`.
     """
     lines: list[str] = [
-        _FRONTMATTER_DELIMITER,
+        "---",
         f"last_updated: {index.last_updated.isoformat()}",
-        _FRONTMATTER_DELIMITER,
+        "---",
         "",
         "# Wiki Index",
         "",
     ]
-    for section, entry_type in _SECTION_TO_ENTRY_TYPE.items():
-        entries_for_type = index.find_by_type(entry_type)
+    for category in WIKI_CATEGORIES:
+        entries_for_type = index.find_by_type(category.entry_type)
         if not entries_for_type:
             continue
-        lines.append(f"## {section}")
+        lines.append(f"## {category.section}")
         lines.extend(entry.to_markdown_link() for entry in entries_for_type)
         lines.append("")
     return "\n".join(lines)
-
-
-def _split_frontmatter(content: str) -> tuple[str, str]:
-    """Split index.md content into its frontmatter block and the markdown body.
-
-    Parameters
-    ----------
-    content : str
-        Full file text. The first line must be a `---` delimiter.
-
-    Returns
-    -------
-    tuple[str, str]
-        (frontmatter_block, body) — both without the surrounding delimiters.
-
-    Raises
-    ------
-    ValueError
-        If the opening or closing `---` delimiter is missing.
-    """
-    opening, sep, rest = content.partition(f"{_FRONTMATTER_DELIMITER}\n")
-    if sep == "" or opening != "":
-        raise ValueError("index.md is missing its opening frontmatter delimiter")
-    frontmatter_block, sep, body = rest.partition(f"\n{_FRONTMATTER_DELIMITER}\n")
-    if sep == "":
-        raise ValueError("index.md is missing its closing frontmatter delimiter")
-    return frontmatter_block, body
-
-
-def _read_field(frontmatter_block: str, field: str) -> str:
-    """Read a single `key: value` field out of the frontmatter block.
-
-    Parameters
-    ----------
-    frontmatter_block : str
-        Text between the two `---` delimiters.
-    field : str
-        Field name to look up.
-
-    Returns
-    -------
-    str
-        The trimmed value for `field`.
-
-    Raises
-    ------
-    ValueError
-        If `field` is not present in the block.
-    """
-    for line in frontmatter_block.splitlines():
-        key, sep, value = line.partition(":")
-        if sep and key.strip() == field:
-            return value.strip()
-    raise ValueError(f"index.md frontmatter is missing required `{field}` field")
 
 
 def _parse_entries(body: str) -> list[IndexEntry]:
@@ -145,7 +84,7 @@ def _parse_entries(body: str) -> list[IndexEntry]:
     current_type: EntryType | None = None
     for line in body.splitlines():
         if line.startswith("## "):
-            current_type = _SECTION_TO_ENTRY_TYPE.get(line[3:].strip())
+            current_type = entry_type_for_section(line[3:].strip())
             continue
         entry = _parse_bullet(line, current_type)
         if entry is not None:
