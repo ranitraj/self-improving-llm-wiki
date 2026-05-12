@@ -89,7 +89,11 @@ For non-trivial features, follow the workflow in [.claude/DDD.md](.claude/DDD.md
 
 ## Solution Docs
 
-When a design doc reaches `status: done`, Claude auto-generates a matching solution doc in `.claude/solutions/`. See [.claude/solutions/README.md](.claude/solutions/README.md) for the trigger + format.
+When a design doc reaches `status: shipped`, Claude auto-generates a matching solution doc in `.claude/solutions/`. See [.claude/solutions/README.md](.claude/solutions/README.md) for the trigger + format.
+
+## Architecture Decision Records
+
+Non-trivial design decisions made during implementation (user pushback, "why not X?" calls, non-obvious steers) are captured as ADRs in `.claude/decisions/`. Append-only. See [.claude/decisions/README.md](.claude/decisions/README.md).
 
 ---
 

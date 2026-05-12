@@ -1,9 +1,9 @@
 ---
 type: feature | model | service | tool | refactor
 name: descriptive-kebab-case-name
-step: 1
-status: draft | in-progress | done | abandoned
-depends_on: []   # list names from other design docs, e.g. [wiki-entry-model]
+status: draft | ready | in-progress | shipped | superseded
+depends_on: []          # names of other design docs this one depends on
+superseded_by:          # only when status=superseded; forward link to replacement
 ---
 
 # [Name]
@@ -21,7 +21,7 @@ All paths are repo-relative.
 
 ```python
 # Example
-def fetch_entry(title: str, max_tokens: int = 512) -> WikiEntry: ...
+def process(input_id: str, limit: int = 100) -> Result: ...
 ```
 
 ## Data Models
@@ -29,10 +29,10 @@ Pydantic models or dataclasses that this module owns or introduces.
 
 ```python
 # Example
-class WikiEntry(BaseModel):
-    title: str
-    body: str
-    updated_at: datetime
+class Result(BaseModel):
+    id: str
+    status: str
+    created_at: datetime
 ```
 
 ## Data Flow
@@ -57,3 +57,8 @@ What this module does NOT do.
 
 ## Open Questions
 - [ ] Unresolved decisions go here.
+
+## Decision Log
+ADRs scoped to this design (append as they are written; see `.claude/decisions/`).
+
+- _NNNN — short title_
