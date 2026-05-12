@@ -72,26 +72,14 @@ def test_parse_index_raises_when_frontmatter_missing() -> None:
         parse_index(content)
 
 
-def test_serialize_index_omits_sections_with_no_entries() -> None:
+def test_serialize_index_omits_sections_with_no_entries(wiki_index_with_tanjiro: WikiIndex) -> None:
     """Verify serialize_index does not emit headings for entry types that have no entries."""
-    index = WikiIndex(
-        entries=[
-            IndexEntry(
-                title="Tanjiro Kamado",
-                path="wiki/characters/tanjiro.md",
-                entry_type="character",
-                summary="Protagonist demon slayer",
-            ),
-        ],
-        last_updated=datetime(2026, 5, 11, 14, 30, tzinfo=UTC),
-    )
-
-    output = serialize_index(index)
+    output = serialize_index(wiki_index_with_tanjiro)
 
     assert "## Characters" in output
     assert "## Episodes" not in output
     assert "## Organizations" not in output
-    assert "last_updated: 2026-05-11T14:30:00+00:00" in output
+    assert f"last_updated: {wiki_index_with_tanjiro.last_updated.isoformat()}" in output
 
 
 def test_round_trip_preserves_all_entries_across_types() -> None:

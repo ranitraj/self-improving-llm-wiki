@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from wiki_agent.log_md import parse_log, serialize_log
+from wiki_agent.log_md import append_entry, parse_log, serialize_log
 from wiki_agent.models import LogEntry, WikiLog
 
 
@@ -63,6 +63,33 @@ def test_serialize_log_omits_empty_lists_and_missing_source() -> None:
     assert "- created:" not in output
     assert "- updated:" not in output
     assert "- summary: Season 1 lint complete — 3 issues fixed" in output
+
+
+def test_append_entry_to_empty_content_returns_just_the_serialized_entry() -> None:
+    """Verify append_entry on a fresh (empty) log emits only the new entry, no leading blank lines."""
+    entry = LogEntry(
+        timestamp=datetime(2026, 5, 12, 14, 30, tzinfo=UTC),
+        operation="ingest",
+        source="https://example.com/tanjiro",
+        created=["wiki/characters/tanjiro.md"],
+        summary="Tanjiro debut",
+    )
+
+    result = append_entry("", entry)
+
+    assert result.startswith("## 2026-05-12T14:30:00+00:00 — ingest\n")
+    assert parse_log(result).entries == [entry]
+
+
+def test_append_entry_preserves_existing_entries_and_separates_with_blank_line(
+    ingest_log_entry: LogEntry, lint_log_entry: LogEntry
+) -> None:
+    """Verify append_entry joins prior content to the new entry with the canonical blank-line separator."""
+    after_first = append_entry("", ingest_log_entry)
+    after_second = append_entry(after_first, lint_log_entry)
+
+    assert parse_log(after_second).entries == [ingest_log_entry, lint_log_entry]
+    assert "\n\n## 2026-05-07T00:00:00+00:00 — lint\n" in after_second
 
 
 def test_round_trip_preserves_entries() -> None:

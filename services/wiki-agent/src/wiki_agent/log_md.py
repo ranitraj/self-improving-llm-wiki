@@ -41,6 +41,33 @@ def serialize_log(log: WikiLog) -> str:
     return "\n\n".join(_serialize_entry(entry) for entry in log.entries)
 
 
+def append_entry(content: str, entry: LogEntry) -> str:
+    """Return new log.md content with `entry` appended to the end.
+
+    Designed for append-only writers that want to avoid re-parsing the whole
+    file on every event. Preserves whatever is already in `content` (even
+    if it doesn't parse cleanly) and joins the new entry with the canonical
+    `\\n\\n` separator.
+
+    Parameters
+    ----------
+    content : str
+        Existing log.md text, possibly empty.
+    entry : LogEntry
+        Entry to append.
+
+    Returns
+    -------
+    str
+        Updated log.md text. No trailing newline — callers control file-level
+        newline conventions.
+    """
+    new_block = _serialize_entry(entry)
+    if not content.strip():
+        return new_block
+    return content.rstrip() + "\n\n" + new_block
+
+
 def _split_into_blocks(content: str) -> list[list[str]]:
     """Group lines into one block per `## ` header.
 

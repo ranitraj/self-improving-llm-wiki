@@ -46,4 +46,5 @@ show_error_codes = true
 # tool-conflict noise — ruff is the single source of truth for formatting.
 # ---------------------------------------------------------------------------
 [tool.pylint."MESSAGES CONTROL"]
-disable = ["line-too-long"]
+# `redefined-outer-name` disabled: false positive on pytest fixture composition.
+disable = ["line-too-long", "redefined-outer-name"]
