@@ -162,6 +162,20 @@ class WikiIndex(BaseModel):
     entries: list[IndexEntry]
     last_updated: datetime
     # helpers: is_stale(log_updated_at), find_by_type(t), find_by_path(p)
+
+LogOperation = Literal["ingest", "lint"]
+
+class LogEntry(BaseModel):
+    timestamp: datetime
+    operation: LogOperation
+    source: str | None       # URL/identifier; None for lint entries
+    created: list[str]       # repo-relative paths created during this event
+    updated: list[str]       # repo-relative paths updated during this event
+    summary: str
+
+class WikiLog(BaseModel):
+    entries: list[LogEntry]
+    # helpers: latest_timestamp(), count_episodes(), has_source(s), append(entry)
 ```
 
 Result models (`IngestResult`, `QueryResult`, `LintResult`) carry small convenience helpers:
@@ -170,6 +184,34 @@ Result models (`IngestResult`, `QueryResult`, `LintResult`) carry small convenie
 - `LintResult.has_issues()`, `fix_rate()`
 
 Shared constants (e.g. `TELEGRAM_MESSAGE_LIMIT`) live in `services/wiki-agent/src/wiki_agent/constants.py`.
+
+### Category taxonomy (single source of truth)
+
+The seven entry types appear in three different shapes across the wiki: as a type
+literal, as a display section heading in `index.md`, and as a filesystem path
+segment under `wiki/`. To avoid duplicating that taxonomy, all three views are
+defined once in `services/wiki-agent/src/wiki_agent/utils/wiki_layout.py`:
+
+```python
+EntryType = Literal["character", "episode", "arc", "breathing_style",
+                    "blood_demon_art", "location", "organization"]
+
+@dataclass(frozen=True)
+class WikiCategory:
+    entry_type: EntryType
+    section: str        # heading in index.md (e.g. "Characters")
+    path_segment: str   # repo path piece (e.g. "characters")
+
+WIKI_CATEGORIES: tuple[WikiCategory, ...] = (...)  # one per EntryType
+
+def entry_type_for_section(section: str) -> EntryType | None: ...
+def entry_type_for_path_segment(segment: str) -> EntryType | None: ...
+def section_for(entry_type: EntryType) -> str: ...
+def path_prefix_for(entry_type: EntryType) -> str: ...  # "wiki/<segment>/"
+```
+
+`models.py`, `index_md.py`, `wiki_page_md.py`, and `WikiLog.count_episodes()`
+all read from these helpers — adding a new entry type touches exactly one place.
 
 ### `index.md` on-disk format
 
@@ -197,6 +239,69 @@ last_updated: 2026-05-11T14:30:00
   - `parse_index(content: str) -> WikiIndex`
   - `serialize_index(index: WikiIndex) -> str`
 
+### `log.md` on-disk format
+
+```markdown
+## 2026-05-12T14:30:00+00:00 — ingest
+- source: https://demonslayer.fandom.com/wiki/Tanjiro
+- created: wiki/characters/tanjiro.md
+- updated: wiki/episodes/01.md, wiki/arcs/mugen-train.md
+- summary: Mugen Train arc introduction
+
+## 2026-05-12T15:00:00+00:00 — lint
+- summary: Season 1 lint complete — 3 issues fixed
+```
+
+- Each entry starts with `## <ISO-8601 timestamp> — <operation>`. `<operation>` is one of `ingest` | `lint`.
+- Body is `- key: value` bullets. Fields: `source` (omitted for lint), `created`, `updated` (both comma-separated path lists; omitted when empty), `summary` (required).
+- Entries are separated by a single blank line. Append-only — oldest first, newest at the bottom.
+- A corrupted/unparsable file is read as an empty `WikiLog` (error logged) but **never overwritten** — the next append preserves the original bytes and adds the new entry after them.
+- Parser/serializer: `services/wiki-agent/src/wiki_agent/log_md.py`
+  - `parse_log(content: str) -> WikiLog`
+  - `serialize_log(log: WikiLog) -> str`
+  - `append_entry(content: str, entry: LogEntry) -> str` — append-only writer that avoids re-parsing the whole file on every event.
+
+### Wiki page on-disk format
+
+Each entry under `wiki/<category>/<file>.md` is YAML frontmatter (key-value pairs only, no nesting) followed by markdown body. Parser/serializer: `services/wiki-agent/src/wiki_agent/wiki_page_md.py` — `parse_page(path, content)` infers `entry_type` from the path's category segment via `wiki_layout`. `WikiPage.to_markdown()` is the writer.
+
+## Storage Abstraction
+
+`WikiRepo` is a `typing.Protocol` that decouples the orchestrator from any specific
+backend. Defined in `services/wiki-agent/src/wiki_agent/wiki_repo.py`:
+
+```python
+class WikiRepo(Protocol):
+    def read_index(self) -> WikiIndex: ...
+    def write_index(self, index: WikiIndex) -> None: ...
+    def read_page(self, path: str) -> WikiPage: ...
+    def write_page(self, page: WikiPage) -> None: ...
+    def list_page_paths(self) -> list[str]: ...
+    def read_log(self) -> WikiLog: ...                  # graceful: empty on missing/corrupt
+    def append_log_entry(self, entry: LogEntry) -> None: ...
+```
+
+- `FilesystemWikiRepo(root: Path)` — local filesystem backend, used for tests and local-only operation. Composition root (CLI / MCP bootstrap) supplies the root path via dependency injection; no env reads inside the class.
+- `GithubWikiRepo` — to be added when wiring the public-facing service. Same Protocol, different I/O. (Closes the original "PyGithub vs raw httpx" open question — the choice is now isolated behind this Protocol and either library can implement it without touching callers.)
+
+## Internal Package Layout
+
+```
+services/wiki-agent/src/wiki_agent/
+  constants.py        # cross-cutting constants (TELEGRAM_MESSAGE_LIMIT, ...)
+  models.py           # Pydantic models: WikiPage, IndexEntry, WikiIndex,
+                      #                  LogEntry, WikiLog, IngestResult, ...
+  index_md.py         # parse_index / serialize_index
+  log_md.py           # parse_log / serialize_log / append_entry
+  wiki_page_md.py     # parse_page
+  wiki_repo.py        # WikiRepo Protocol + FilesystemWikiRepo
+  utils/
+    frontmatter.py    # split_frontmatter / parse_fields (shared by index + page)
+    wiki_layout.py    # EntryType + WIKI_CATEGORIES taxonomy + lookups
+```
+
+Tests sit under `services/wiki-agent/tests/`, one `test_<module>.py` per source module (TDD enforcement hook). `tests/conftest.py` holds shared fixtures.
+
 ## Data Flow
 
 **Ingest:** source → fetch/chunk → load index.md → Claude Sonnet → page diffs → GitHub commits → log.md + index.md update → season check → (optional) auto-lint
@@ -214,8 +319,8 @@ last_updated: 2026-05-11T14:30:00
   - `python-telegram-bot` — Telegram long-polling bot
   - `httpx` — URL fetching
   - `pydantic` — data models
-  - `PyGithub` or raw `httpx` — GitHub API commits
-  - `python-frontmatter` — parse/write YAML frontmatter in wiki pages
+  - GitHub API client — `PyGithub` or raw `httpx`; deferred decision, isolated behind `WikiRepo` Protocol (see Storage Abstraction).
+  - ~~`python-frontmatter`~~ — not used. Frontmatter is hand-rolled in `utils/frontmatter.py` because index.md and wiki pages only need flat `key: value` parsing; pulling a dependency for ~30 lines of code wasn't worth it.
 
 ## Deployment
 
@@ -243,6 +348,20 @@ services:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_USER_ID` — only this user ID can interact with the bot
 
+## Implementation Progress
+
+Built in chunked TDD order; each chunk landed with full pytest / mypy / ruff / pylint coverage.
+
+- [x] **Layer 0 — Data models** (`models.py`): `WikiPage`, `IndexEntry`, `WikiIndex`, `LogEntry`, `WikiLog`, `IngestResult`, `QueryResult`, `LintResult`.
+- [x] **Layer 0 — Taxonomy** (`utils/wiki_layout.py`): `EntryType`, `WIKI_CATEGORIES`, section/path-segment lookups.
+- [x] **Layer 1 — Parsers / serializers**: `utils/frontmatter.py`, `index_md.py`, `log_md.py` (incl. `append_entry`), `wiki_page_md.py`.
+- [x] **Layer 2 — Storage abstraction** (`wiki_repo.py`): `WikiRepo` Protocol + `FilesystemWikiRepo`. Graceful `read_log`. `GithubWikiRepo` pending.
+- [ ] **Layer 3 — Orchestrators**: `wiki_ingest`, `wiki_query`, `wiki_lint`. Needs a Claude client + a URL fetcher.
+- [ ] **Layer 4 — Service edges**: MCP server (FastMCP), Telegram long-polling bot, Docker Compose deployment.
+- [ ] **Content repo bootstrap**: 7 entry-type templates + `AGENTS.md` in the `demon-slayer-wiki` content repo.
+
+The integration test scenarios below (T1–T8) exercise Layer 3 + 4 and will be written when those layers land. Layers 0–2 are covered by unit tests in `services/wiki-agent/tests/`.
+
 ## Test Scenarios
 
 - **T1** — Given a valid fandom URL, when `wiki_ingest` is called, then at least one wiki page is created or updated and `log.md` gains a new entry.
@@ -264,6 +383,7 @@ services:
 | Claude API error | Timeout or overload | Retry once with backoff; surface error to Telegram |
 | Telegram message > 4096 chars | Long query answer | Split into sequential messages automatically |
 | `index.md` stale | Log entry newer than index timestamp | Rebuild index from wiki directory before proceeding |
+| `log.md` missing or corrupted | Fresh repo, or hand-edited / partially-written file | `WikiRepo.read_log()` returns an empty `WikiLog` and emits a `logging` line (INFO for missing, ERROR for corrupted). On-disk content is never overwritten — the next `append_log_entry` preserves the existing bytes and adds the new entry after them, so a corrupted log can be fixed by hand without losing the recovery entry. |
 
 ## Out of Scope
 
@@ -276,6 +396,6 @@ services:
 
 ## Open Questions
 
-- [ ] Which GitHub library: `PyGithub` (higher-level) or raw `httpx` to GitHub REST API (fewer deps)?
+- [x] ~~Which GitHub library: `PyGithub` (higher-level) or raw `httpx` to GitHub REST API (fewer deps)?~~ **Deferred:** the choice is now isolated behind the `WikiRepo` Protocol. Pick when implementing `GithubWikiRepo`; callers are unaffected.
 - [ ] Should `AGENTS.md` in the wiki repo be committed manually once, or auto-generated by the MCP server on bootstrap?
 - [ ] Token threshold for chunking: 6K tokens per chunk (leaves room for index + system prompt in 64K context) — confirm?
