@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, field_validator
 
-from wiki_agent.constants import TELEGRAM_MESSAGE_LIMIT
+from wiki_agent.constants import EPISODE_PATH_PREFIX, TELEGRAM_MESSAGE_LIMIT
 
 EntryType = Literal[
     "character",
@@ -16,6 +16,8 @@ EntryType = Literal[
     "location",
     "organization",
 ]
+
+LogOperation = Literal["ingest", "lint"]
 
 
 class WikiPage(BaseModel):
@@ -266,6 +268,109 @@ class QueryResult(BaseModel):
             True when source_pages is non-empty.
         """
         return len(self.source_pages) > 0
+
+
+class LogEntry(BaseModel):
+    """A single chronological event appended to log.md.
+
+    Parameters
+    ----------
+    timestamp : datetime
+        Wall-clock time the operation completed.
+    operation : LogOperation
+        Either 'ingest' (new source absorbed) or 'lint' (wiki audit pass).
+    source : str | None
+        URL or short identifier of the input source. None for lint entries.
+    created : list[str]
+        Repo-relative paths of pages created during this operation.
+    updated : list[str]
+        Repo-relative paths of pages updated during this operation.
+    summary : str
+        Human-readable one-line summary of the event.
+    """
+
+    timestamp: datetime
+    operation: LogOperation
+    source: str | None = None
+    created: list[str] = []
+    updated: list[str] = []
+    summary: str
+
+
+class WikiLog(BaseModel):
+    """Append-only chronological record of every wiki mutation.
+
+    Parameters
+    ----------
+    entries : list[LogEntry]
+        Entries in chronological order; newest is `entries[-1]`.
+    """
+
+    entries: list[LogEntry] = []
+
+    def latest_timestamp(self) -> datetime | None:
+        """Return the timestamp of the most recent entry, or None if the log is empty.
+
+        Returns
+        -------
+        datetime | None
+            Timestamp of `entries[-1]`, or None when no entries exist.
+        """
+        if not self.entries:
+            return None
+        return self.entries[-1].timestamp
+
+    def count_episodes(self) -> int:
+        """Return the number of distinct episode pages ever touched.
+
+        Counts unique paths under `EPISODE_PATH_PREFIX` across both the created
+        and updated lists of every entry, so re-ingesting an existing episode
+        does not double-count.
+
+        Returns
+        -------
+        int
+            Distinct episode paths recorded across all entries.
+        """
+        episode_paths: set[str] = set()
+        for entry in self.entries:
+            for path in (*entry.created, *entry.updated):
+                if path.startswith(EPISODE_PATH_PREFIX):
+                    episode_paths.add(path)
+        return len(episode_paths)
+
+    def has_source(self, source: str) -> bool:
+        """Return True if any prior entry recorded the given source identifier.
+
+        Parameters
+        ----------
+        source : str
+            Source URL or identifier to look up.
+
+        Returns
+        -------
+        bool
+            True if at least one entry's source matches.
+        """
+        return any(entry.source == source for entry in self.entries)
+
+    def append(self, entry: LogEntry) -> "WikiLog":
+        """Return a new WikiLog with `entry` appended at the end.
+
+        The original log is left unchanged — callers should replace their
+        reference with the returned value.
+
+        Parameters
+        ----------
+        entry : LogEntry
+            Entry to append in chronological order.
+
+        Returns
+        -------
+        WikiLog
+            New log instance whose entries end with `entry`.
+        """
+        return WikiLog(entries=[*self.entries, entry])
 
 
 class LintResult(BaseModel):

@@ -6,8 +6,10 @@ import pytest
 from pydantic import ValidationError
 from wiki_agent.models import (
     IngestResult,
+    LogEntry,
     QueryResult,
     WikiIndex,
+    WikiLog,
     WikiPage,
 )
 
@@ -83,3 +85,94 @@ def test_query_result_new_page_filed_defaults_to_false() -> None:
         source_pages=["wiki/characters/rengoku.md"],
     )
     assert result.new_page_filed is False
+
+
+def test_log_entry_rejects_unknown_operation() -> None:
+    """Verify LogEntry only allows the two known operations."""
+    with pytest.raises(ValidationError):
+        LogEntry(
+            timestamp=datetime(2026, 5, 12, 14, 30, tzinfo=UTC),
+            operation="query",
+            summary="not a valid log operation",
+        )
+
+
+def test_wiki_log_latest_timestamp_returns_none_when_empty() -> None:
+    """Verify latest_timestamp returns None for a freshly initialised log."""
+    assert WikiLog(entries=[]).latest_timestamp() is None
+
+
+def test_wiki_log_latest_timestamp_returns_last_entry_timestamp() -> None:
+    """Verify latest_timestamp returns the timestamp of the most recent entry (last in order)."""
+    log = WikiLog(
+        entries=[
+            LogEntry(
+                timestamp=datetime(2026, 5, 1, tzinfo=UTC),
+                operation="ingest",
+                source="https://example.com/a",
+                created=["wiki/episodes/01.md"],
+                summary="ep 1",
+            ),
+            LogEntry(
+                timestamp=datetime(2026, 5, 7, tzinfo=UTC),
+                operation="ingest",
+                source="https://example.com/b",
+                created=["wiki/episodes/02.md"],
+                summary="ep 2",
+            ),
+        ]
+    )
+    assert log.latest_timestamp() == datetime(2026, 5, 7, tzinfo=UTC)
+
+
+def test_wiki_log_count_episodes_dedupes_across_entries() -> None:
+    """Verify count_episodes counts distinct episode paths across created and updated lists."""
+    log = WikiLog(
+        entries=[
+            LogEntry(
+                timestamp=datetime(2026, 5, 1, tzinfo=UTC),
+                operation="ingest",
+                source="https://example.com/a",
+                created=["wiki/episodes/01.md", "wiki/characters/tanjiro.md"],
+                summary="ep 1 + Tanjiro",
+            ),
+            LogEntry(
+                timestamp=datetime(2026, 5, 2, tzinfo=UTC),
+                operation="ingest",
+                source="https://example.com/b",
+                created=["wiki/episodes/02.md"],
+                updated=["wiki/episodes/01.md"],
+                summary="ep 2 + ep 1 update",
+            ),
+        ]
+    )
+    assert log.count_episodes() == 2
+
+
+def test_wiki_log_has_source_detects_existing_ingest() -> None:
+    """Verify has_source returns True for a URL already recorded and False otherwise."""
+    log = WikiLog(
+        entries=[
+            LogEntry(
+                timestamp=datetime(2026, 5, 1, tzinfo=UTC),
+                operation="ingest",
+                source="https://example.com/tanjiro",
+                summary="t",
+            ),
+        ]
+    )
+    assert log.has_source("https://example.com/tanjiro") is True
+    assert log.has_source("https://example.com/zenitsu") is False
+
+
+def test_wiki_log_append_returns_new_log_without_mutating_original() -> None:
+    """Verify append produces a new WikiLog and leaves the original entries list unchanged."""
+    original = WikiLog(entries=[])
+    entry = LogEntry(
+        timestamp=datetime(2026, 5, 12, tzinfo=UTC),
+        operation="lint",
+        summary="Season 1 lint complete",
+    )
+    appended = original.append(entry)
+    assert not original.entries
+    assert appended.entries == [entry]
