@@ -18,24 +18,30 @@ Fandom wikis spoil future episodes. Personal notes go stale and aren't cross-ref
 
 ```
 [Telegram]                    [Claude Desktop]
-     │ long-polling                 │
-     ▼                             │
-[Telegram Bot (Python)]           │
-     │ maps commands to MCP        │
-     ▼                             ▼
-[MCP Server — FastMCP]   ←────────┘
-     │  wiki_ingest / wiki_query / wiki_lint
-     ▼
-[Claude API]
-  Sonnet → ingest, lint (reasoning-heavy)
-  Haiku  → query (fast, cheap)
-     │
-     ▼
-[GitHub API]  →  commits to demon-slayer-wiki repo
-                        │
-                        ▼
-               [GitHub Pages]  ←  public read-only site
+     │ long-polling                 │ MCP stdio
+     ▼                              ▼
+┌──────────────────┐         ┌──────────────────┐
+│  hermes          │         │  wiki-mcp        │   ← protocol-adapter services
+│  (Telegram bot)  │         │  (FastMCP)       │     (independently deployable)
+└────────┬─────────┘         └────────┬─────────┘
+         │                            │
+         │   imports wiki-agent       │
+         ▼                            ▼
+         ┌───────────────────────────────┐
+         │  wiki-agent (shared platform) │  ← domain library
+         │  wiki_ingest / wiki_query /   │    (no HTTP, no polling,
+         │  wiki_lint  + repo + parsers  │     pure Python functions)
+         └────────────┬──────────────────┘
+                      │
+              ┌───────┴────────┐
+              ▼                ▼
+         [Claude API]     [GitHub API] → demon-slayer-wiki repo
+         Sonnet (ingest,            │
+                 lint)              ▼
+         Haiku  (query)        [GitHub Pages]
 ```
+
+See [ADR 0005](../decisions/0005-shared-platform-plus-protocol-adapters.md) for the rationale behind the shared-platform + adapter-services split.
 
 ## Wiki Repository Structure
 
@@ -286,23 +292,41 @@ class WikiRepo(Protocol):
 
 ## Internal Package Layout
 
+Three services under `services/` — the shared platform plus two protocol adapters. See [ADR 0005](../decisions/0005-shared-platform-plus-protocol-adapters.md).
+
 ```
-services/wiki-agent/src/wiki_agent/
-  constants.py        # cross-cutting constants (TELEGRAM_MESSAGE_LIMIT, ...)
-  models.py           # Pydantic models: WikiPage, IndexEntry, WikiIndex,
-                      #                  LogEntry, WikiLog, IngestResult, ...
-  index_md.py         # parse_index / serialize_index
-  log_md.py           # parse_log / serialize_log / append_entry
-  wiki_page_md.py     # parse_page
-  wiki_repo.py        # WikiRepo Protocol + FilesystemWikiRepo
-  claude_client.py    # ClaudeClient Protocol (real impl: AnthropicClaudeClient, chunk 3.7)
-  ingest.py           # wiki_ingest orchestrator
-  utils/
-    frontmatter.py    # split_frontmatter / parse_fields (shared by index + page)
-    wiki_layout.py    # EntryType + WIKI_CATEGORIES taxonomy + lookups
+services/
+  wiki-agent/                       # shared PLATFORM (domain library)
+    src/wiki_agent/
+      constants.py                  # cross-cutting constants
+      models.py                     # Pydantic models: WikiPage, IndexEntry,
+                                    #   WikiIndex, LogEntry, WikiLog,
+                                    #   IngestResult, ...
+      index_md.py                   # parse_index / serialize_index
+      log_md.py                     # parse_log / serialize_log / append_entry
+      wiki_page_md.py               # parse_page
+      wiki_repo.py                  # WikiRepo Protocol + FilesystemWikiRepo
+      claude_client.py              # ClaudeClient Protocol
+                                    #   (real: AnthropicClaudeClient, chunk 3.7)
+      url_fetcher.py                # UrlFetcher Protocol
+                                    #   (real: HttpxUrlFetcher, chunk 3.7)
+      ingest.py                     # wiki_ingest orchestrator
+      utils/
+        frontmatter.py              # split_frontmatter / parse_fields
+        wiki_layout.py              # EntryType + WIKI_CATEGORIES taxonomy
+
+  wiki-mcp/                         # MCP adapter (FastMCP, Layer 4)
+    src/wiki_mcp/                   #   imports wiki-agent; exposes orchestrators
+                                    #   over MCP for Claude Desktop
+
+  hermes/                           # Telegram bot adapter (Layer 4)
+    src/hermes/                     #   imports wiki-agent; long-polls Telegram;
+                                    #   maps commands → wiki-agent calls
 ```
 
-Tests sit under `services/wiki-agent/tests/`, one `test_<module>.py` per source module (TDD enforcement hook). `tests/conftest.py` holds shared fixtures. `tests/stubs.py` holds in-memory Protocol stubs (e.g. `StubClaudeClient`) used by orchestrator tests — kept out of `src/` so the production wheel ships only Protocol contracts + real implementations.
+Each service has its own `tests/` folder with one `test_<module>.py` per source module (TDD enforcement hook). `wiki-agent/tests/conftest.py` holds shared fixtures; `wiki-agent/tests/stubs.py` holds in-memory Protocol stubs (`StubClaudeClient`, `StubUrlFetcher`) used by orchestrator tests — kept out of `src/` so the production wheel ships only Protocol contracts + real implementations.
+
+The dep mechanism between `wiki-mcp` / `hermes` and `wiki-agent` (uv workspaces vs path-based deps) is deferred until the first adapter ships real code in Layer 4 (see ADR 0005 — Followups).
 
 ## Data Flow
 
@@ -358,15 +382,22 @@ Built in chunked TDD order; each chunk landed with full pytest / mypy / ruff / p
 - [x] **Layer 0 — Taxonomy** (`utils/wiki_layout.py`): `EntryType`, `WIKI_CATEGORIES`, section/path-segment lookups.
 - [x] **Layer 1 — Parsers / serializers**: `utils/frontmatter.py`, `index_md.py`, `log_md.py` (incl. `append_entry`), `wiki_page_md.py`.
 - [x] **Layer 2 — Storage abstraction** (`wiki_repo.py`): `WikiRepo` Protocol + `FilesystemWikiRepo`. Graceful `read_log`. `GithubWikiRepo` pending.
-- [~] **Layer 3 — Orchestrators**: chunked build, each lands behind a Protocol + test stub before the real impl.
-  - [x] 3.1 — `wiki_ingest` core (text-only): `ClaudeClient` Protocol (`claude_client.py`) + `StubClaudeClient` (`tests/stubs.py`) + `wiki_ingest` (`ingest.py`).
-  - [ ] 3.2 — URL ingestion: `UrlFetcher` Protocol + httpx-backed impl; `wiki_ingest` accepts URLs.
+- [~] **Layer 3 — Orchestrators** (live in `wiki-agent`): chunked build, each lands behind a Protocol + test stub before the real impl.
+  - [x] 3.1 — `wiki_ingest` core (text-only): `ClaudeClient` Protocol + `StubClaudeClient` + `wiki_ingest` orchestrator.
+  - [x] 3.2 — URL ingestion: `UrlFetcher` Protocol + `StubUrlFetcher`; `wiki_ingest` auto-detects URL vs text via `_is_url`.
   - [ ] 3.3 — Chunking large pages (H2 split).
   - [ ] 3.4 — Idempotency (T4): skip when `source` already in `log.md`.
   - [ ] 3.5 — Auto-lint at episode 26 (T6).
   - [ ] 3.6 — `wiki_query`, `wiki_lint` orchestrators (add `synthesize_query`, `synthesize_lint` to `ClaudeClient`).
-  - [ ] 3.7 — `AnthropicClaudeClient` (real anthropic SDK behind the same Protocol).
-- [ ] **Layer 4 — Service edges**: MCP server (FastMCP), Telegram long-polling bot, Docker Compose deployment. The MCP layer is async; orchestrators currently expose sync APIs and will either be async-ified or wrapped via `asyncio.to_thread` at the boundary — decided when Layer 4 lands.
+  - [ ] 3.7 — `AnthropicClaudeClient` + `HttpxUrlFetcher` (real impls behind the existing Protocols).
+- [~] **Service split** — architecture committed, scaffolding in progress.
+  - [x] ADR 0005 written; design doc + Internal Package Layout updated to show the three-service shape.
+  - [x] Skeleton `services/wiki-mcp/` and `services/hermes/` directories with READMEs describing each adapter's planned contents.
+  - [ ] Per-service `pyproject.toml` + dep mechanism (uv workspaces vs path deps) — lands with the first adapter's real code in Layer 4.
+- [ ] **Layer 4 — Adapter services** (independently deployable):
+  - [ ] `services/wiki-mcp/` — FastMCP adapter exposing orchestrators for Claude Desktop. Decides the dep mechanism + async/sync boundary.
+  - [ ] `services/hermes/` — Telegram bot agent: long-polls Telegram, maps commands to `wiki-agent` orchestrator calls.
+  - [ ] `docker-compose.yml` wiring both adapters + the `wiki-agent` shared platform.
 - [ ] **Content repo bootstrap**: 7 entry-type templates + `AGENTS.md` in the `demon-slayer-wiki` content repo.
 
 The integration test scenarios below (T1–T8) exercise Layer 3 + 4 and will be written when those layers land. Layers 0–2 are covered by unit tests in `services/wiki-agent/tests/`.
@@ -415,5 +446,6 @@ ADRs scoped to this design, append-only. See [.claude/decisions/](../decisions/R
 - [0002 — Hand-roll frontmatter parser, no `python-frontmatter` dep](../decisions/0002-frontmatter-handrolled.md)
 - [0003 — `WikiRepo` Protocol with filesystem backend first](../decisions/0003-wiki-repo-protocol-abstraction.md)
 - [0004 — `read_log` degrades gracefully; corrupted content is never overwritten](../decisions/0004-graceful-log-md-reading.md)
+- [0005 — Shared platform (`wiki-agent`) + protocol-adapter services (`wiki-mcp`, `hermes`)](../decisions/0005-shared-platform-plus-protocol-adapters.md)
 - [ ] Should `AGENTS.md` in the wiki repo be committed manually once, or auto-generated by the MCP server on bootstrap?
 - [ ] Token threshold for chunking: 6K tokens per chunk (leaves room for index + system prompt in 64K context) — confirm?
