@@ -80,3 +80,53 @@ class StubClaudeClient:
             The last invocation, or `None` if the stub has not been called yet.
         """
         return self.calls[-1] if self.calls else None
+
+
+class StubUrlFetcher:
+    """Stub `UrlFetcher` that returns pre-seeded text for a fixed URL→text map.
+
+    Returns canned data with no expectation checking; records every fetched
+    URL on `.calls` so tests can later assert on call count (e.g. for
+    idempotency: "the orchestrator should not have fetched a second time").
+
+    Parameters
+    ----------
+    responses : dict[str, str]
+        Map from URL → text that should be returned when that URL is fetched.
+        Calling `fetch(url)` with a URL not in this map raises `KeyError`.
+    """
+
+    def __init__(self, responses: dict[str, str]) -> None:
+        self._responses = responses
+        self.calls: list[str] = []
+
+    def fetch(self, url: str) -> str:
+        """Record the call and return the seeded text for `url`.
+
+        Parameters
+        ----------
+        url : str
+            URL to look up in the seeded responses.
+
+        Returns
+        -------
+        str
+            The text mapped to `url` in `responses`.
+
+        Raises
+        ------
+        KeyError
+            If `url` is not present in the seeded responses dict.
+        """
+        self.calls.append(url)
+        return self._responses[url]
+
+    def last_call(self) -> str | None:
+        """Return the most recently fetched URL, or None if `fetch` has not run.
+
+        Returns
+        -------
+        str | None
+            The last URL fetched, or `None` if the stub has not been called yet.
+        """
+        return self.calls[-1] if self.calls else None

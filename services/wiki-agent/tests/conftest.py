@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 import pytest
 from wiki_agent.models import IndexEntry, LogEntry, WikiIndex
 
+from tests.stubs import StubUrlFetcher
+
 
 @pytest.fixture
 def tanjiro_index_entry() -> IndexEntry:
@@ -74,3 +76,19 @@ def lint_log_entry() -> LogEntry:
         operation="lint",
         summary="second",
     )
+
+
+@pytest.fixture
+def text_only_fetcher() -> StubUrlFetcher:
+    """Return an empty `StubUrlFetcher` for tests that ingest text sources.
+
+    Useful when a test passes a non-URL source through `wiki_ingest` and the
+    fetcher should never be called. Any accidental fetch will raise `KeyError`,
+    making the misuse obvious.
+
+    Returns
+    -------
+    StubUrlFetcher
+        A fetcher with no seeded URL responses.
+    """
+    return StubUrlFetcher(responses={})

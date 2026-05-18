@@ -295,12 +295,14 @@ services/wiki-agent/src/wiki_agent/
   log_md.py           # parse_log / serialize_log / append_entry
   wiki_page_md.py     # parse_page
   wiki_repo.py        # WikiRepo Protocol + FilesystemWikiRepo
+  claude_client.py    # ClaudeClient Protocol (real impl: AnthropicClaudeClient, chunk 3.7)
+  ingest.py           # wiki_ingest orchestrator
   utils/
     frontmatter.py    # split_frontmatter / parse_fields (shared by index + page)
     wiki_layout.py    # EntryType + WIKI_CATEGORIES taxonomy + lookups
 ```
 
-Tests sit under `services/wiki-agent/tests/`, one `test_<module>.py` per source module (TDD enforcement hook). `tests/conftest.py` holds shared fixtures.
+Tests sit under `services/wiki-agent/tests/`, one `test_<module>.py` per source module (TDD enforcement hook). `tests/conftest.py` holds shared fixtures. `tests/stubs.py` holds in-memory Protocol stubs (e.g. `StubClaudeClient`) used by orchestrator tests — kept out of `src/` so the production wheel ships only Protocol contracts + real implementations.
 
 ## Data Flow
 
@@ -356,8 +358,15 @@ Built in chunked TDD order; each chunk landed with full pytest / mypy / ruff / p
 - [x] **Layer 0 — Taxonomy** (`utils/wiki_layout.py`): `EntryType`, `WIKI_CATEGORIES`, section/path-segment lookups.
 - [x] **Layer 1 — Parsers / serializers**: `utils/frontmatter.py`, `index_md.py`, `log_md.py` (incl. `append_entry`), `wiki_page_md.py`.
 - [x] **Layer 2 — Storage abstraction** (`wiki_repo.py`): `WikiRepo` Protocol + `FilesystemWikiRepo`. Graceful `read_log`. `GithubWikiRepo` pending.
-- [ ] **Layer 3 — Orchestrators**: `wiki_ingest`, `wiki_query`, `wiki_lint`. Needs a Claude client + a URL fetcher.
-- [ ] **Layer 4 — Service edges**: MCP server (FastMCP), Telegram long-polling bot, Docker Compose deployment.
+- [~] **Layer 3 — Orchestrators**: chunked build, each lands behind a Protocol + test stub before the real impl.
+  - [x] 3.1 — `wiki_ingest` core (text-only): `ClaudeClient` Protocol (`claude_client.py`) + `StubClaudeClient` (`tests/stubs.py`) + `wiki_ingest` (`ingest.py`).
+  - [ ] 3.2 — URL ingestion: `UrlFetcher` Protocol + httpx-backed impl; `wiki_ingest` accepts URLs.
+  - [ ] 3.3 — Chunking large pages (H2 split).
+  - [ ] 3.4 — Idempotency (T4): skip when `source` already in `log.md`.
+  - [ ] 3.5 — Auto-lint at episode 26 (T6).
+  - [ ] 3.6 — `wiki_query`, `wiki_lint` orchestrators (add `synthesize_query`, `synthesize_lint` to `ClaudeClient`).
+  - [ ] 3.7 — `AnthropicClaudeClient` (real anthropic SDK behind the same Protocol).
+- [ ] **Layer 4 — Service edges**: MCP server (FastMCP), Telegram long-polling bot, Docker Compose deployment. The MCP layer is async; orchestrators currently expose sync APIs and will either be async-ified or wrapped via `asyncio.to_thread` at the boundary — decided when Layer 4 lands.
 - [ ] **Content repo bootstrap**: 7 entry-type templates + `AGENTS.md` in the `demon-slayer-wiki` content repo.
 
 The integration test scenarios below (T1–T8) exercise Layer 3 + 4 and will be written when those layers land. Layers 0–2 are covered by unit tests in `services/wiki-agent/tests/`.

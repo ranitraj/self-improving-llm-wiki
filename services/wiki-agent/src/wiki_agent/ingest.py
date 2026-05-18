@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from wiki_agent.claude_client import ClaudeClient
 from wiki_agent.models import IndexEntry, IngestResult, LogEntry, WikiIndex, WikiPage
+from wiki_agent.url_fetcher import UrlFetcher
 from wiki_agent.wiki_repo import WikiRepo
 
 
@@ -12,25 +13,31 @@ def wiki_ingest(
     source: str,
     repo: WikiRepo,
     claude: ClaudeClient,
+    fetcher: UrlFetcher,
     *,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> IngestResult:
     """Synthesize `source` into wiki page updates via Claude, persisting via `repo`.
 
-    Reads the current index, asks Claude to produce a set of new or updated
-    pages, classifies each by whether its path is already in the index,
-    writes them through `repo`, appends a single log entry capturing the
-    source and the create/update split, and rebuilds the index.
+    If `source` is an http(s) URL it is first fetched through `fetcher`; any
+    other string is treated as the raw text and passed to Claude unchanged.
+    Then: reads the current index, asks Claude to produce a set of new or
+    updated pages, classifies each by whether its path is already in the
+    index, writes them through `repo`, appends a single log entry capturing
+    the original `source` (URL or text) and the create/update split, and
+    rebuilds the index.
 
     Parameters
     ----------
     source : str
-        Free text or URL identifying the input. Used as the log entry's
-        `source` field for duplicate-detection by later chunks.
+        URL (http/https) or free text identifying the input. Stored on the
+        log entry verbatim for duplicate-detection by later chunks.
     repo : WikiRepo
         Storage backend for the wiki content repo.
     claude : ClaudeClient
         Claude client used to synthesize the new page set.
+    fetcher : UrlFetcher
+        URL fetcher invoked only when `source` is an http(s) URL.
     now : Callable[[], datetime]
         Injected clock for testability. Defaults to `datetime.now(UTC)`.
 
@@ -44,7 +51,8 @@ def wiki_ingest(
     index = _load_index(repo, timestamp)
     existing_pages = [repo.read_page(entry.path) for entry in index.entries]
 
-    synthesized = claude.synthesize_ingest(source, index, existing_pages)
+    text = fetcher.fetch(source) if _is_url(source) else source
+    synthesized = claude.synthesize_ingest(text, index, existing_pages)
 
     created, updated = _persist_pages(repo, index, synthesized)
     summary = _build_log_summary(created, updated)
@@ -166,6 +174,25 @@ def _index_entry_from_page(page: WikiPage) -> IndexEntry:
     title = str(page.frontmatter.get("name") or page.frontmatter.get("title") or page.file_name().removesuffix(".md"))
     summary = str(page.frontmatter.get("summary") or "")
     return IndexEntry(title=title, path=page.path, entry_type=page.entry_type, summary=summary)
+
+
+def _is_url(source: str) -> bool:
+    """Return True if `source` looks like an http(s) URL.
+
+    Used to decide whether to route the source through the `UrlFetcher` or
+    pass it directly to Claude as raw text.
+
+    Parameters
+    ----------
+    source : str
+        Raw source string supplied by the caller.
+
+    Returns
+    -------
+    bool
+        True for strings starting with `http://` or `https://`; False otherwise.
+    """
+    return source.startswith(("http://", "https://"))
 
 
 def _build_log_summary(created: list[str], updated: list[str]) -> str:
