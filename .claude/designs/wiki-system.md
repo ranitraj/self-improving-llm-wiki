@@ -310,6 +310,9 @@ services/
                                     #   (real: AnthropicClaudeClient, chunk 3.7)
       url_fetcher.py                # UrlFetcher Protocol
                                     #   (real: HttpxUrlFetcher, chunk 3.7)
+      chunking.py                   # chunk_text_by_h2 (split large text at H2)
+      deps.py                       # WikiAgentDeps dataclass bundling repo +
+                                    #   claude + fetcher + now for orchestrators
       ingest.py                     # wiki_ingest orchestrator
       utils/
         frontmatter.py              # split_frontmatter / parse_fields
@@ -385,7 +388,7 @@ Built in chunked TDD order; each chunk landed with full pytest / mypy / ruff / p
 - [~] **Layer 3 — Orchestrators** (live in `wiki-agent`): chunked build, each lands behind a Protocol + test stub before the real impl.
   - [x] 3.1 — `wiki_ingest` core (text-only): `ClaudeClient` Protocol + `StubClaudeClient` + `wiki_ingest` orchestrator.
   - [x] 3.2 — URL ingestion: `UrlFetcher` Protocol + `StubUrlFetcher`; `wiki_ingest` auto-detects URL vs text via `_is_url`.
-  - [ ] 3.3 — Chunking large pages (H2 split).
+  - [x] 3.3 — Chunking large pages (`chunking.py` with H2 split, `_approx_tokens` heuristic); `WikiAgentDeps` dataclass bundles `repo`/`claude`/`fetcher`/`now` so orchestrator signatures stay narrow as 3.6 adds query+lint.
   - [ ] 3.4 — Idempotency (T4): skip when `source` already in `log.md`.
   - [ ] 3.5 — Auto-lint at episode 26 (T6).
   - [ ] 3.6 — `wiki_query`, `wiki_lint` orchestrators (add `synthesize_query`, `synthesize_lint` to `ClaudeClient`).
